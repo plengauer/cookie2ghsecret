@@ -2,12 +2,14 @@ name: OpenTelemetry
 on:
   workflow_run:
     workflows:
+      - .github/workflows/copilot-setup-steps.yml
       - Claude
       - CodeQL
       - Copilot code review
       - Copilot coding agent
       - Dependency Graph
       - OpenAI Codex
+      - Recompile Agentic Workflows
       - Release
       - Renovate
     types:
