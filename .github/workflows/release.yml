@@ -9,12 +9,18 @@ on:
 
 permissions:
   contents: write
-
+  actions: read
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: plengauer/opentelemetry-github/actions/instrument/job@v5.50.0
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        with:
+          secrets_to_redact: ${{ github.token }}
       - name: Checkout repository
         uses: actions/checkout@v4
 
