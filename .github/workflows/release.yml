@@ -22,7 +22,7 @@ jobs:
         with:
           secrets_to_redact: ${{ github.token }}
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Read version
         id: version
