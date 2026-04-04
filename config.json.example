@@ -1,7 +1,6 @@
 {
-  "website": "example.com",
-  "cookie_name": "session_id",
-  "github_repo": "owner/repository",
-  "github_token": "ghp_your_token_here",
+  "website":            "example.com",
+  "github_repo":        "owner/repository",
+  "github_token":       "ghp_your_token_here",
   "github_secret_name": "MY_COOKIE_SECRET"
 }
