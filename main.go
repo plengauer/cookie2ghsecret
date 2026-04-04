@@ -1,7 +1,8 @@
 //go:build windows
 
-// cookie2ghsecret extracts a named cookie from a locally installed Chrome
-// browser and uploads it as a GitHub Actions repository secret.
+// cookie2ghsecret extracts all cookies for a website from a locally installed
+// Chrome browser and uploads them as a GitHub Actions repository secret in the
+// form of a valid Cookie header value.
 //
 // Usage:
 //
@@ -11,7 +12,6 @@
 //
 //	{
 //	  "website":            "example.com",
-//	  "cookie_name":        "session_id",
 //	  "github_repo":        "owner/repository",
 //	  "github_token":       "ghp_...",
 //	  "github_secret_name": "MY_COOKIE_SECRET"
@@ -41,7 +41,6 @@ import (
 // Config holds all user-configurable parameters loaded from the JSON config file.
 type Config struct {
 	Website          string `json:"website"`
-	CookieName       string `json:"cookie_name"`
 	GitHubRepo       string `json:"github_repo"`
 	GitHubToken      string `json:"github_token"`
 	GitHubSecretName string `json:"github_secret_name"`
@@ -64,15 +63,15 @@ func main() {
 		fatalf("Error loading config from %q: %v\n", configFile, err)
 	}
 
-	fmt.Printf("Extracting cookie %q for %q from Chrome...\n", cfg.CookieName, cfg.Website)
-	cookieValue, err := extractChromeCookie(cfg.Website, cfg.CookieName)
+	fmt.Printf("Extracting cookies for %q from Chrome...\n", cfg.Website)
+	cookieHeader, err := extractChromeCookies(cfg.Website)
 	if err != nil {
-		fatalf("Error extracting cookie: %v\n", err)
+		fatalf("Error extracting cookies: %v\n", err)
 	}
-	fmt.Println("Cookie extracted successfully.")
+	fmt.Println("Cookies extracted successfully.")
 
 	fmt.Printf("Uploading secret %q to %s...\n", cfg.GitHubSecretName, cfg.GitHubRepo)
-	if err := uploadGitHubSecret(cfg.GitHubRepo, cfg.GitHubToken, cfg.GitHubSecretName, cookieValue); err != nil {
+	if err := uploadGitHubSecret(cfg.GitHubRepo, cfg.GitHubToken, cfg.GitHubSecretName, cookieHeader); err != nil {
 		fatalf("Error uploading secret: %v\n", err)
 	}
 	fmt.Printf("Secret %q successfully uploaded to %s.\n", cfg.GitHubSecretName, cfg.GitHubRepo)
@@ -96,9 +95,6 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.Website == "" {
 		return nil, fmt.Errorf("config: 'website' must not be empty")
 	}
-	if cfg.CookieName == "" {
-		return nil, fmt.Errorf("config: 'cookie_name' must not be empty")
-	}
 	if cfg.GitHubRepo == "" {
 		return nil, fmt.Errorf("config: 'github_repo' must not be empty")
 	}
@@ -111,9 +107,9 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// extractChromeCookie tries each known Chrome profile root directory in turn
-// and returns the decrypted value of the first matching cookie.
-func extractChromeCookie(website, cookieName string) (string, error) {
+// extractChromeCookies tries each known Chrome profile root directory in turn
+// and returns all cookies for the website formatted as a Cookie header value.
+func extractChromeCookies(website string) (string, error) {
 	localAppData := os.Getenv("LOCALAPPDATA")
 	if localAppData == "" {
 		return "", fmt.Errorf("LOCALAPPDATA environment variable is not set")
@@ -127,17 +123,17 @@ func extractChromeCookie(website, cookieName string) (string, error) {
 
 	var lastErr error
 	for _, root := range profileRoots {
-		value, err := extractFromProfile(root, website, cookieName)
+		value, err := extractFromProfile(root, website)
 		if err == nil {
 			return value, nil
 		}
 		lastErr = err
 	}
-	return "", fmt.Errorf("cookie %q for %q not found in any Chrome profile: %w", cookieName, website, lastErr)
+	return "", fmt.Errorf("cookies for %q not found in any Chrome profile: %w", website, lastErr)
 }
 
-// extractFromProfile extracts a cookie from a specific Chrome user-data directory.
-func extractFromProfile(chromeUserDataPath, website, cookieName string) (string, error) {
+// extractFromProfile extracts all cookies for a website from a specific Chrome user-data directory.
+func extractFromProfile(chromeUserDataPath, website string) (string, error) {
 	localStatePath := filepath.Join(chromeUserDataPath, "Local State")
 	if _, err := os.Stat(localStatePath); err != nil {
 		return "", fmt.Errorf("Chrome profile not found at %s: %w", chromeUserDataPath, err)
@@ -158,12 +154,12 @@ func extractFromProfile(chromeUserDataPath, website, cookieName string) (string,
 		if _, err := os.Stat(dbPath); err != nil {
 			continue
 		}
-		value, err := readCookieFromDB(dbPath, website, cookieName, aesKey)
+		value, err := readCookiesFromDB(dbPath, website, aesKey)
 		if err == nil {
 			return value, nil
 		}
 	}
-	return "", fmt.Errorf("cookie %q for %q not found in profile %s", cookieName, website, chromeUserDataPath)
+	return "", fmt.Errorf("cookies for %q not found in profile %s", website, chromeUserDataPath)
 }
 
 // getChromeAESKey reads Chrome's Local State file and returns the AES-256 key
@@ -200,10 +196,11 @@ func getChromeAESKey(localStatePath string) ([]byte, error) {
 	return decryptWithDPAPI(encryptedKey)
 }
 
-// readCookieFromDB opens a copy of the Chrome Cookies SQLite database,
-// queries for the named cookie, and returns its decrypted value.
+// readCookiesFromDB opens a copy of the Chrome Cookies SQLite database,
+// queries for all cookies matching the website, decrypts each one, and returns
+// them formatted as a Cookie header value ("name1=value1; name2=value2; ...").
 // It works on a temp-file copy to avoid locking conflicts when Chrome is running.
-func readCookieFromDB(dbPath, website, cookieName string, aesKey []byte) (string, error) {
+func readCookiesFromDB(dbPath, website string, aesKey []byte) (string, error) {
 	tmpFile, err := os.CreateTemp("", "chrome-cookies-*.db")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
@@ -228,20 +225,36 @@ func readCookieFromDB(dbPath, website, cookieName string, aesKey []byte) (string
 	domain := strings.TrimPrefix(website, ".")
 	subdomainPattern := "%." + domain
 
-	var encryptedValue []byte
-	err = db.QueryRow(
-		`SELECT encrypted_value FROM cookies
-		 WHERE (host_key = ? OR host_key LIKE ?) AND name = ? LIMIT 1`,
-		domain, subdomainPattern, cookieName,
-	).Scan(&encryptedValue)
-	if err == sql.ErrNoRows {
-		return "", fmt.Errorf("cookie %q for domain %q not found", cookieName, domain)
-	}
+	rows, err := db.Query(
+		`SELECT name, encrypted_value FROM cookies
+		 WHERE host_key = ? OR host_key LIKE ?`,
+		domain, subdomainPattern,
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to query Cookies database: %w", err)
 	}
+	defer rows.Close()
 
-	return decryptChromeCookie(encryptedValue, aesKey)
+	var parts []string
+	for rows.Next() {
+		var name string
+		var encryptedValue []byte
+		if err := rows.Scan(&name, &encryptedValue); err != nil {
+			return "", fmt.Errorf("failed to read cookie row: %w", err)
+		}
+		value, err := decryptChromeCookie(encryptedValue, aesKey)
+		if err != nil {
+			return "", fmt.Errorf("failed to decrypt cookie %q: %w", name, err)
+		}
+		parts = append(parts, name+"="+value)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("failed to iterate cookies: %w", err)
+	}
+	if len(parts) == 0 {
+		return "", fmt.Errorf("no cookies found for domain %q", domain)
+	}
+	return strings.Join(parts, "; "), nil
 }
 
 // decryptChromeCookie decrypts a Chrome cookie value.
