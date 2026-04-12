@@ -45,4 +45,5 @@ jobs:
           generate_release_notes: true
           files: cookie2ghsecret.exe
     permissions:
+      contents: write
       actions: read
