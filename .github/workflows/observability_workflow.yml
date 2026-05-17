@@ -8,7 +8,6 @@ on:
       - CodeQL
       - Copilot cloud agent
       - Copilot code review
-      - Copilot coding agent
       - Dependency Graph
       - OpenAI Codex
       - Recompile Agentic Workflows
