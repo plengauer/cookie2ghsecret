@@ -6,6 +6,7 @@ on:
       - Autoversion
       - Claude
       - CodeQL
+      - Copilot
       - Copilot cloud agent
       - Copilot code review
       - Dependency Graph
