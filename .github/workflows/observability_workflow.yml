@@ -14,6 +14,7 @@ on:
       - Recompile Agentic Workflows
       - Release
       - Renovate
+      - Report Failed Workflows
     types:
       - completed
 jobs:
