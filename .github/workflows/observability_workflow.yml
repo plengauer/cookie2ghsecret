@@ -3,6 +3,8 @@ on:
   workflow_run:
     workflows:
       - .github/workflows/copilot-setup-steps.yml
+      - Autobackport
+      - Autoversion
       - Claude
       - CodeQL
       - Copilot
